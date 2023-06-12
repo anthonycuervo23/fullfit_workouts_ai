@@ -12,26 +12,33 @@ const configuration = new Configuration({
 });
 const openai = new OpenAIApi(configuration);
 
-//TODO: modificar prompt cuando la lista de lastMucleGurops sea vacía
 // Función para generar el prompt personalizado
 async function createPrompt(user, lastMuscleGroups) {
-  const prompt = `
-    Hello, FitGPT. I am a ${user.gender} in the age range of ${user.age_range}, with a height of ${user.height} cm and a weight of ${user.weight} kg and my fitness level is ${user.fitness_level}.
-    My fitness goals are to ${user.fitness_goal.join(", ")} and I usually train at the ${user.training_spot}. 
-    I need a new workout routine for today. Please make sure to target two different muscles and the workout does not include the following muscle groups: ${lastMuscleGroups.join(", ")} that I have already trained yesterday.
-    please include a warm up and a cool down in the workout.
-  
-    Please provide the workout as a HTML content with heading, subheading, bullet points, and bold. 
-    Also, provide the muscle groups that will be trained in this workout.
-  
-    The output should be in JSON format like this:
-    {
-      "muscleGroups": ["group1", "group2", ...],
-      "workout": "<html><body><h1>Workout Title</h1> ..."
+    let muscleGroupPrompt = '';
+    if (lastMuscleGroups.length > 0) {
+      muscleGroupPrompt = `Please make sure to target two different muscles and the workout does not include the following muscle groups: ${lastMuscleGroups.join(", ")} that I have already trained yesterday.`;
+    } else {
+      muscleGroupPrompt = 'Please make sure to target two different muscles.';
     }
-    `;
-  return prompt;
-}
+  
+    const prompt = `
+      Hello, FitGPT. I am a ${user.gender} in the age range of ${user.age_range}, with a height of ${user.height} cm and a weight of ${user.weight} kg and my fitness level is ${user.fitness_level}.
+      My fitness goals are to ${user.fitness_goal.join(", ")} and I usually train at the ${user.training_spot}. 
+      I need a new workout routine for today. ${muscleGroupPrompt}
+      Please include a warm up and a cool down in the workout.
+    
+      Please provide the workout as a HTML content with heading, subheading, bullet points, and bold. 
+      Also, provide the muscle groups that will be trained in this workout.
+    
+      The output should be in JSON format like this:
+      {
+        "muscleGroups": ["group1", "group2", ...],
+        "workout": "<html><body><h1>Workout Title</h1> ..."
+      }
+      `;
+    return prompt;
+  }
+  
 
 
 // Function to generate workout
