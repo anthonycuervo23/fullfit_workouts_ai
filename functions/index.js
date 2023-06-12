@@ -12,11 +12,35 @@ const configuration = new Configuration({
 });
 const openai = new OpenAIApi(configuration);
 
+//TODO: modificar prompt cuando la lista de lastMucleGurops sea vacía
+// Función para generar el prompt personalizado
+async function createPrompt(user, lastMuscleGroups) {
+  const prompt = `
+    Hello, FitGPT. I am a ${user.gender} in the age range of ${user.age_range}, with a height of ${user.height} cm and a weight of ${user.weight} kg and my fitness level is ${user.fitness_level}.
+    My fitness goals are to ${user.fitness_goal.join(", ")} and I usually train at the ${user.training_spot}. 
+    I need a new workout routine for today. Please make sure to target two different muscles and the workout does not include the following muscle groups: ${lastMuscleGroups.join(", ")} that I have already trained yesterday.
+    please include a warm up and a cool down in the workout.
+  
+    Please provide the workout as a HTML content with heading, subheading, bullet points, and bold. 
+    Also, provide the muscle groups that will be trained in this workout.
+  
+    The output should be in JSON format like this:
+    {
+      "muscleGroups": ["group1", "group2", ...],
+      "workout": "<html><body><h1>Workout Title</h1> ..."
+    }
+    `;
+  return prompt;
+}
+
+
 // Function to generate workout
 async function generateWorkout(prompt, userId) {
+  console.log("Prompt:", prompt);
+  console.log("my api key: ", apiKey);
   try {
     const response = await openai.createChatCompletion({
-      model: "gpt-4.0",
+      model: "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
@@ -29,11 +53,17 @@ async function generateWorkout(prompt, userId) {
       ],
       user: userId,
       max_tokens: 800,
-    //   conversation_key: conversationKey,
-    //   remember_response: true,
     });
 
-    return response.data.choices[0].message.content;
+    const rawMessage = response.choices[0].message.content;
+    const firstIndex = rawMessage.indexOf("{");
+    const lastIndex = rawMessage.lastIndexOf("}");
+
+    const jsonString = rawMessage.slice(firstIndex, lastIndex + 1);
+
+    const output = JSON.parse(jsonString);
+
+    return {muscleGroups: output.muscleGroups, workout: output.workout};
   } catch (error) {
     console.error("Failed to generate workout:", error);
     return null;
@@ -53,9 +83,11 @@ exports.populateWorkoutQueue = functions.pubsub.schedule("every day 00:00").onRu
       const date = new Date();
       const conversation_key = `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}-${doc.id}-workout`;
 
+      const prompt = await createPrompt(user, user.lastMuscleGroups || []);
+
       await queueRef.add({
         user_id: doc.id,
-        prompt: user.prompt,
+        prompt: prompt,
         conversation_key: conversation_key,
       });
     });
@@ -74,7 +106,7 @@ exports.processWorkoutQueue = functions.firestore.document("workoutsQueue/{taskI
     const doc = await userWorkoutsRef.get();
 
     if (!doc.exists) {
-      const workout = await generateWorkout(task.prompt, task.conversation_key);
+      const workout = await generateWorkout(task.prompt, task.user_id);
       await userWorkoutsRef.set({
         workout: workout,
         date: new Date(),
@@ -111,24 +143,32 @@ exports.generateWorkoutOnLogin = functions.firestore.document("users/{userId}").
   // Verificar si el campo last_login ha sido actualizado
   if (updatedFields.last_login !== previousFields.last_login) {
     try {
-      const userId = context.params.userId;
-      const prompt = updatedFields.prompt;
-
       const db = admin.firestore();
+      const userId = context.params.userId;
+      const user = updatedFields;
+
       const date = new Date();
       const conversation_key = `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}-${userId}-workout`;
       const userWorkoutsRef = db.collection("userWorkouts").doc(`${userId}-${conversation_key}`);
       const doc = await userWorkoutsRef.get();
 
       if (!doc.exists) {
-        const workout = await generateWorkout(prompt, userId);
+        const prompt = await createPrompt(user, user.lastMuscleGroups || []);
+
+        const workoutData = await generateWorkout(prompt, userId);
 
         await userWorkoutsRef.set({
-          workout: workout,
+          workout: workoutData.workout,
           date: date,
+          userId: userId,
         });
 
-        console.log("Workout generated on login:", workout);
+        // Almacenar los grupos de músculos trabajados en el documento del usuario
+        await db.collection("users").doc(userId).update({
+          lastMuscleGroups: workoutData.muscleGroups,
+        });
+
+        console.log("Workout generated on login:", workoutData);
       } else {
         console.log("Workout already exists for today and user:", doc.data().workout);
       }
