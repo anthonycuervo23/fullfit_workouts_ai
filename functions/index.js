@@ -164,7 +164,7 @@ exports.assignTimeBlock = functions.firestore.document("users/{userId}").onCreat
     const timeBlock = numUsers % 10;
 
     const newUserRef = snap.ref;
-    await newUserRef.update({timeBlock: timeBlock});
+    await newUserRef.update({time_block: timeBlock});
   } catch (error) {
     console.error("Failed to assign time block:", error);
   }
