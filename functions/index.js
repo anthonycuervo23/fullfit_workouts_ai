@@ -14,31 +14,30 @@ const openai = new OpenAIApi(configuration);
 
 // Función para generar el prompt personalizado
 async function createPrompt(user, lastMuscleGroups) {
-    let muscleGroupPrompt = '';
-    if (lastMuscleGroups.length > 0) {
-      muscleGroupPrompt = `Please make sure to target two different muscles and the workout does not include the following muscle groups: ${lastMuscleGroups.join(", ")} that I have already trained yesterday.`;
-    } else {
-      muscleGroupPrompt = 'Please make sure to target two different muscles.';
-    }
-  
-    const prompt = `
-      Hello, FitGPT. I am a ${user.gender} in the age range of ${user.age_range}, with a height of ${user.height} cm and a weight of ${user.weight} kg and my fitness level is ${user.fitness_level}.
-      My fitness goals are to ${user.fitness_goal.join(", ")} and I usually train at the ${user.training_spot}. 
-      I need a new workout routine for today. ${muscleGroupPrompt}
-      Please include a warm up and a cool down in the workout.
-    
-      Please provide the workout as a HTML content with heading, subheading, bullet points, and bold. 
-      Also, provide the muscle groups that will be trained in this workout.
-    
-      The output should be in JSON format like this:
-      {
-        "muscleGroups": ["group1", "group2", ...],
-        "workout": "<html><body><h1>Workout Title</h1> ..."
-      }
-      `;
-    return prompt;
+  let muscleGroupPrompt = "";
+  if (lastMuscleGroups.length > 0) {
+    muscleGroupPrompt = `Please make sure to target two different muscles and the workout does not include the following muscle groups: ${lastMuscleGroups.join(", ")} that I have already trained yesterday.`;
+  } else {
+    muscleGroupPrompt = "Please make sure to target two different muscles.";
   }
+
+  const prompt = `
+    Hello, FitGPT. I am a ${user.gender} in the age range of ${user.age_range}, with a height of ${user.height} cm and a weight of ${user.weight} kg and my fitness level is ${user.fitness_level}.
+    My fitness goals are to ${user.fitness_goal.join(", ")} and I usually train at the ${user.training_spot}. 
+    I need a new workout routine for today. ${muscleGroupPrompt}
+    Please include a warm up and a cool down in the workout.
   
+    Please provide the workout as a HTML content with heading, subheading, bullet points, and bold. 
+    Also, provide the muscle groups that will be trained in this workout.
+  
+    The output should be in JSON format like this:
+    {
+      "muscleGroups": ["group1", "group2", ...],
+      "workout": "<html><body><h1>Workout Title</h1> ..."
+    }
+  `;
+  return prompt;
+}
 
 
 // Function to generate workout
@@ -59,10 +58,15 @@ async function generateWorkout(prompt, userId) {
         },
       ],
       user: userId,
-      max_tokens: 800,
+      max_tokens: 1600,
     });
 
-    const rawMessage = response.choices[0].message.content;
+    if (!response || !response.data.choices || response.data.choices.length === 0) {
+      console.error("Invalid response from OpenAI:", response);
+      return;
+    }
+
+    const rawMessage = response.data.choices[0].message.content;
     const firstIndex = rawMessage.indexOf("{");
     const lastIndex = rawMessage.lastIndexOf("}");
 
@@ -141,6 +145,39 @@ exports.assignTimeBlock = functions.firestore.document("users/{userId}").onCreat
     console.error("Failed to assign time block:", error);
   }
 });
+
+// Function to generate workout on registration
+exports.generateWorkoutOnRegistration = functions.firestore.document("users/{userId}").onCreate(async (snap, context) => {
+  try {
+    const db = admin.firestore();
+    const userId = context.params.userId;
+    const user = snap.data();
+
+    const date = new Date();
+    const conversation_key = `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}-${userId}-workout`;
+    const userWorkoutsRef = db.collection("userWorkouts").doc(`${userId}-${conversation_key}`);
+
+    const prompt = await createPrompt(user, user.lastMuscleGroups || []);
+
+    const workoutData = await generateWorkout(prompt, userId);
+
+    await userWorkoutsRef.set({
+      workout: workoutData.workout,
+      date: date,
+      userId: userId,
+    });
+
+    // Almacenar los grupos de músculos trabajados en el documento del usuario
+    await db.collection("users").doc(userId).update({
+      lastMuscleGroups: workoutData.muscleGroups,
+    });
+
+    console.log("Workout generated on registration:", workoutData);
+  } catch (error) {
+    console.error("Failed to generate workout on registration:", error);
+  }
+});
+
 
 // Function to generate workout on login
 exports.generateWorkoutOnLogin = functions.firestore.document("users/{userId}").onUpdate(async (change, context) => {
