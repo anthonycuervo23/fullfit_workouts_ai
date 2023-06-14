@@ -111,23 +111,26 @@ async function populateWorkoutQueueForTimeBlock(timeBlock) {
     const queueRef = db.collection("workoutsQueue");
 
     const snapshot = await usersRef.get();
-    snapshot.forEach(async (doc) => {
+    const promises = snapshot.docs.map(async (doc) => {
       const user = doc.data();
       const date = new Date();
       const conversation_key = `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}-workout`;
 
       const prompt = await createPrompt(user);
 
-      await queueRef.add({
+      return queueRef.add({
         user_id: doc.id,
         prompt: prompt,
         conversation_key: conversation_key,
       });
     });
+
+    await Promise.all(promises);
   } catch (error) {
     console.error("Failed to populate workout queue:", error);
   }
 }
+
 
 // Function to process workout queue
 exports.processWorkoutQueue = functions.firestore.document("workoutsQueue/{taskId}").onCreate(async (snap, context) => {
